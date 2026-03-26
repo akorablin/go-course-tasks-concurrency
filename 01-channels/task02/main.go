@@ -51,6 +51,11 @@ func process(in <-chan int) <-chan int {
 // Подсказка: используй sync.WaitGroup чтобы закрыть каналы воркеров
 func fanOut(in <-chan int, n int) []<-chan int {
 	channels := make([]<-chan int, n)
+	for i := 1; i <= n; i++ {
+		channels <- i
+	}
+	close(channels)
+
 	// TODO: создай n каналов
 	// TODO: запусти горутину которая распределяет данные из in по каналам round-robin
 	// TODO: закрой все каналы когда in закрыт
