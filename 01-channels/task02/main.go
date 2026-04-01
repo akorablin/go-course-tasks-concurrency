@@ -51,10 +51,34 @@ func process(in <-chan int) <-chan int {
 // Подсказка: используй sync.WaitGroup чтобы закрыть каналы воркеров
 func fanOut(in <-chan int, n int) []<-chan int {
 	channels := make([]<-chan int, n)
+
 	// TODO: создай n каналов
-	// TODO: запусти горутину которая распределяет данные из in по каналам round-robin
+	wchannels := make([]chan int, n)
+
+	var wg sync.WaitGroup
+
+	for i := range n {
+		wchannels[i] = make(chan int, len(in))
+		channels[i] = wchannels[i]
+
+		wg.Add(1)
+
+		// TODO: запусти горутину которая распределяет данные из in по каналам round-robin
+		go func() {
+			defer wg.Done()
+			for job := range in {
+				wchannels[i] <- job
+				// fmt.Printf("Worker %d обработал задачу %d\n", i, job)
+			}
+		}()
+	}
+
 	// TODO: закрой все каналы когда in закрыт
-	_ = in
+	wg.Wait()
+	for _, ch := range wchannels {
+		close(ch)
+	}
+
 	return channels
 }
 
@@ -65,11 +89,22 @@ func fanIn(channels ...<-chan int) <-chan int {
 	out := make(chan int)
 	var wg sync.WaitGroup
 
-	// TODO: для каждого канала запусти горутину которая читает и пишет в out
-	_ = wg
-	_ = channels
+	for _, ch := range channels {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for result := range ch {
+				out <- result
+			}
+		}()
+	}
 
 	// TODO: когда все горутины завершатся — закрой out
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
 
 	return out
 }
@@ -85,12 +120,16 @@ func main() {
 	}
 	close(source)
 
+	// fmt.Println("Этап 1:", runtime.NumGoroutine())
+
 	// Распределяем и обрабатываем
 	workers := fanOut(source, numWorkers)
 	var processedChans []<-chan int
 	for _, w := range workers {
 		processedChans = append(processedChans, process(w))
 	}
+
+	// fmt.Println("Этап 2:", runtime.NumGoroutine())
 
 	// Собираем результаты
 	sum := 0
@@ -99,6 +138,8 @@ func main() {
 		sum += result
 		count++
 	}
+
+	// fmt.Println("Этап 3:", runtime.NumGoroutine())
 
 	fmt.Printf("Обработано %d задач. Сумма: %d\n", count, sum)
 	// Ожидаемо: Обработано 10 задач. Сумма: 110
