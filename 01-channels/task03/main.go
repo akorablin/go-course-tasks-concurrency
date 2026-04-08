@@ -73,6 +73,23 @@ func generate(done <-chan struct{}, nums ...int) <-chan int {
 	return out
 }
 
+func filterEven(done <-chan struct{}, in <-chan int) <-chan int {
+	out := make(chan int)
+	go func() {
+		defer close(out)
+		for n := range in {
+			if n%2 == 0 {
+				select {
+				case out <- n:
+				case <-done:
+					return
+				}
+			}
+		}
+	}()
+	return out
+}
+
 // TODO: добавь параметр done в square
 func square(done <-chan struct{}, in <-chan int) <-chan int {
 	out := make(chan int)
@@ -101,7 +118,7 @@ func main() {
 		nums[i] = i + 1
 	}
 
-	results := square(done, generate(done, nums...))
+	results := square(done, filterEven(done, generate(done, nums...)))
 
 	// Читаем только 3 значения, потом отменяем
 	var got []int
