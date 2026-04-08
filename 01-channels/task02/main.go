@@ -64,20 +64,22 @@ func fanOut(in <-chan int, n int) []<-chan int {
 		wg.Add(1)
 
 		// TODO: запусти горутину которая распределяет данные из in по каналам round-robin
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
 			for job := range in {
-				wchannels[i] <- job
-				// fmt.Printf("Worker %d обработал задачу %d\n", i, job)
+				wchannels[idx] <- job
+				// fmt.Printf("Worker %d обработал задачу %d\n", idx, job)
 			}
-		}()
+		}(i)
 	}
 
 	// TODO: закрой все каналы когда in закрыт
-	wg.Wait()
-	for _, ch := range wchannels {
-		close(ch)
-	}
+	go func() {
+		wg.Wait()
+		for _, ch := range wchannels {
+			close(ch)
+		}
+	}()
 
 	return channels
 }
