@@ -52,14 +52,35 @@ func mockFetch(ctx context.Context, url string) (Result, error) {
 
 // TODO: реализуй fastest
 // Алгоритм:
-//   1. Для каждого url запусти горутину с mockFetch
-//   2. Через select жди первый успешный результат
-//   3. При получении — отмени контекст (остальные сами остановятся)
-//   4. Если все вернули ошибку — вернуть ErrAllFailed
-//   5. Если ctx отменён раньше — вернуть ErrTimeout
+//  1. Для каждого url запусти горутину с mockFetch
+//  2. Через select жди первый успешный результат
+//  3. При получении — отмени контекст (остальные сами остановятся)
+//  4. Если все вернули ошибку — вернуть ErrAllFailed
+//  5. Если ctx отменён раньше — вернуть ErrTimeout
 func fastest(ctx context.Context, urls []string) (Result, error) {
-	// TODO: реализуй
-	return Result{}, errors.New("TODO: реализуй")
+	var err error
+	out := make(chan Result)
+	for _, url := range urls {
+		go func(ctx context.Context) error {
+			defer close(out)
+			result, err := mockFetch(ctx, url)
+			if err != nil {
+				return err
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out <- result:
+				}
+			}
+		}(ctx)
+	}
+	v, ok := <-out
+	if !ok {
+		err = ErrAllFailed
+	}
+	return v, err
 }
 
 // TODO: реализуй withTimeout
@@ -78,10 +99,17 @@ func main() {
 		"https://api3.example.com",
 	}
 
-	result, err := fastest(ctx, urls)
-	if err != nil {
-		fmt.Println("Ошибка:", err)
-		return
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("Ошибка:", ErrTimeout)
+			return
+		default:
+			result, err := fastest(ctx, urls)
+			if err != nil {
+				fmt.Println("Ошибка:", err)
+			}
+			fmt.Printf("Быстрейший ответ от %s: %s\n", result.URL, result.Body)
+		}
 	}
-	fmt.Printf("Быстрейший ответ от %s: %s\n", result.URL, result.Body)
 }
