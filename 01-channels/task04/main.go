@@ -46,7 +46,7 @@ func mockFetch(ctx context.Context, url string) (Result, error) {
 		}
 		return Result{URL: url, Body: fmt.Sprintf("response from %s", url)}, nil
 	case <-ctx.Done():
-		return Result{}, ctx.Err()
+		return Result{}, ErrTimeout
 	}
 }
 
@@ -70,7 +70,7 @@ func fastest(ctx context.Context, urls []string) (Result, error) {
 			for {
 				select {
 				case <-ctx.Done():
-					return ctx.Err()
+					return ErrTimeout
 				case out <- result:
 				}
 			}
@@ -99,17 +99,10 @@ func main() {
 		"https://api3.example.com",
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println("Ошибка:", ErrTimeout)
-			return
-		default:
-			result, err := fastest(ctx, urls)
-			if err != nil {
-				fmt.Println("Ошибка:", err)
-			}
-			fmt.Printf("Быстрейший ответ от %s: %s\n", result.URL, result.Body)
-		}
+	result, err := fastest(ctx, urls)
+	if err != nil {
+		fmt.Println("Ошибка:", err)
+		return
 	}
+	fmt.Printf("Быстрейший ответ от %s: %s\n", result.URL, result.Body)
 }
