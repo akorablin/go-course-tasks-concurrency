@@ -54,23 +54,27 @@ func fanOut(in <-chan int, n int) []<-chan int {
 
 	// TODO: создай n каналов
 	wchannels := make([]chan int, n)
-
 	var wg sync.WaitGroup
 
 	for i := range n {
 		wchannels[i] = make(chan int, len(in))
 		channels[i] = wchannels[i]
+	}
 
+	j := 0 // Счетчик распределенных задач
+	for i := range n {
 		wg.Add(1)
+		n := i + 1
 
 		// TODO: запусти горутину которая распределяет данные из in по каналам round-robin
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
 			for job := range in {
-				wchannels[idx] <- job
-				// fmt.Printf("Worker %d обработал задачу %d\n", idx, job)
+				j++
+				wchannels[j%n] <- job
+				// fmt.Printf("Worker %d обработал задачу %d\n", n, job)
 			}
-		}(i)
+		}()
 	}
 
 	// TODO: закрой все каналы когда in закрыт

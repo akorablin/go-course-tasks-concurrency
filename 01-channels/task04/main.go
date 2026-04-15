@@ -58,35 +58,52 @@ func mockFetch(ctx context.Context, url string) (Result, error) {
 //  4. Если все вернули ошибку — вернуть ErrAllFailed
 //  5. Если ctx отменён раньше — вернуть ErrTimeout
 func fastest(ctx context.Context, urls []string) (Result, error) {
-	var err error
-	out := make(chan Result)
+	results := make(chan Result, len(urls))
+	errors := make(chan error, len(urls))
 	for _, url := range urls {
-		go func(ctx context.Context) error {
-			defer close(out)
-			result, err := mockFetch(ctx, url)
+		go func() {
+			r, err := mockFetch(ctx, url)
 			if err != nil {
-				return err
+				errors <- err
+			} else {
+				results <- r
 			}
-			for {
-				select {
-				case <-ctx.Done():
-					return ErrTimeout
-				case out <- result:
-				}
+		}()
+	}
+
+	errCount := 0
+	for {
+		select {
+		case r := <-results:
+			// cancel()
+			return r, nil
+		case <-errors:
+			errCount++
+			if errCount == len(urls) {
+				return Result{}, ErrAllFailed
 			}
-		}(ctx)
+		case <-ctx.Done():
+			return Result{}, ErrTimeout
+		}
 	}
-	v, ok := <-out
-	if !ok {
-		err = ErrAllFailed
-	}
-	return v, err
 }
 
-// TODO: реализуй withTimeout
 func withTimeout(d time.Duration, fn func() (string, error)) (string, error) {
-	// TODO: запусти fn в горутине, используй select с time.After
-	return "", errors.New("TODO: реализуй")
+	type result struct {
+		s   string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		s, err := fn()
+		ch <- result{s, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.s, r.err
+	case <-time.After(d):
+		return "", ErrTimeout
+	}
 }
 
 func main() {
