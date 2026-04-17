@@ -60,9 +60,27 @@ func mergeN(channels ...<-chan int) <-chan int {
 	var wg sync.WaitGroup
 
 	// TODO: на каждый канал — горутина
+	for i := range channels {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for channels[i] != nil {
+				v, ok := <-channels[i]
+				if !ok {
+					channels[i] = nil
+					continue
+				}
+				out <- v
+			}
+		}()
+	}
+
 	// TODO: WaitGroup.Wait() в отдельной горутине, потом close(out)
-	_ = wg
-	_ = channels
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
 
 	return out
 }
