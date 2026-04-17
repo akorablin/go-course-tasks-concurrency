@@ -59,12 +59,13 @@ func mockFetch(ctx context.Context, url string) (Result, error) {
 //  5. Если ctx отменён раньше — вернуть ErrTimeout
 func fastest(ctx context.Context, urls []string) (Result, error) {
 	results := make(chan Result, len(urls))
-	errors := make(chan error, len(urls))
+	errs := make(chan error, len(urls))
+	ctxChild, cancel := context.WithCancel(ctx)
 	for _, url := range urls {
 		go func() {
-			r, err := mockFetch(ctx, url)
+			r, err := mockFetch(ctxChild, url)
 			if err != nil {
-				errors <- err
+				errs <- err
 			} else {
 				results <- r
 			}
@@ -75,14 +76,16 @@ func fastest(ctx context.Context, urls []string) (Result, error) {
 	for {
 		select {
 		case r := <-results:
-			// cancel()
+			cancel()
 			return r, nil
-		case <-errors:
+		case <-errs:
 			errCount++
 			if errCount == len(urls) {
+				cancel()
 				return Result{}, ErrAllFailed
 			}
-		case <-ctx.Done():
+		case <-ctxChild.Done():
+			cancel()
 			return Result{}, ErrTimeout
 		}
 	}
