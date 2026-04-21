@@ -18,7 +18,7 @@
 //   - Get использует RLock (параллельное чтение)
 //   - Set и Delete используют Lock (эксклюзивная запись)
 //   - Get возвращает (zero, false) для устаревших записей
-//   - Устаревшие записи удаляются лениво (при следующем Get)
+//   - Устаревшие записи удаляются лениво (при следующем Get) ???
 //   - Дополнительно: метод Cleanup() удаляет все устаревшие записи
 //
 // Проверь:
@@ -33,8 +33,8 @@ import (
 )
 
 type entry[V any] struct {
-	value   V
-	expiry  time.Time
+	value  V
+	expiry time.Time
 }
 
 type TTLCache[K comparable, V any] struct {
@@ -55,16 +55,33 @@ func NewTTLCache[K comparable, V any](ttl time.Duration) *TTLCache[K, V] {
 func (c *TTLCache[K, V]) Set(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	// TODO: сохрани entry с expiry = time.Now().Add(c.ttl)
+	c.items[key] = entry[V]{
+		value:  value,
+		expiry: time.Now().Add(c.ttl),
+	}
 }
 
 // TODO: реализуй Get — возвращает значение если оно есть и не устарело
 func (c *TTLCache[K, V]) Get(key K) (V, bool) {
-	c.mu.Lock() // TODO: поменяй на RLock, но нужен апгрейд до Lock если запись устарела
-	defer c.mu.Unlock()
-	// TODO: проверь entry.expiry.After(time.Now())
-	// Если устарело — удали из map и верни zero, false
+	c.mu.RLock() // TODO: поменяй на RLock, но нужен апгрейд до Lock если запись устарела
+
 	var zero V
+	if v, ok := c.items[key]; ok {
+		// TODO: проверь entry.expiry.After(time.Now())
+		// Если устарело — удали из map и верни zero, false
+		if v.expiry.After(time.Now()) {
+			c.mu.RUnlock()
+			return v.value, true
+		} else {
+			c.mu.RUnlock()
+			c.Delete(key)
+			return zero, false
+		}
+	}
+
+	c.mu.RUnlock()
 	return zero, false
 }
 
@@ -72,15 +89,22 @@ func (c *TTLCache[K, V]) Get(key K) (V, bool) {
 func (c *TTLCache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// TODO: delete(c.items, key)
+	delete(c.items, key)
 }
 
 // TODO: реализуй Len — количество ЖИВЫХ записей
 func (c *TTLCache[K, V]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	// TODO: считай только не устаревшие записи
-	return 0
+	count := 0
+	for _, e := range c.items {
+		if e.expiry.After(time.Now()) {
+			count++
+		}
+	}
+	return count
 }
 
 // TODO: реализуй Cleanup — удаляет все устаревшие записи
