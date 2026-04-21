@@ -106,13 +106,14 @@ func sourceChan(nums ...int) <-chan int {
 func main() {
 	a := sourceChan(1, 3, 5)
 	b := sourceChan(2, 4, 6)
-
 	var result []int
 	for v := range merge2(a, b) {
 		result = append(result, v)
 	}
 	sort.Ints(result)
 	fmt.Println("merge2:", result) // [1 2 3 4 5 6]
+
+	// ------------
 
 	channels := make([]<-chan int, 4)
 	for i := range channels {
@@ -123,11 +124,27 @@ func main() {
 		}
 		channels[i] = sourceChan(nums...)
 	}
-
 	var result2 []int
 	for v := range mergeN(channels...) {
 		result2 = append(result2, v)
 	}
 	sort.Ints(result2)
 	fmt.Println("mergeN:", result2) // [1 2 3 ... 20]
+
+	// ------------
+
+	channels2 := make([]<-chan int, 4)
+	for i := range channels2 {
+		start := i*4 + 1
+		nums := make([]int, 4)
+		for j := range nums {
+			nums[j] = start + j
+		}
+		channels2[i] = sourceChan(nums...)
+	}
+	var result3 []int
+	for v := range mergeOrdered(channels2...) {
+		result3 = append(result3, v)
+	}
+	fmt.Println("mergeOrdered:", result3)
 }
