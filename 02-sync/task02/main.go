@@ -83,18 +83,19 @@ func (o *OnceWithError) Do(fn func() (any, error)) (any, error) {
 		return o.val, o.err
 	}
 
+	// TODO: вызови fn()
+	// TODO: если err == nil — установи done = true
+	// TODO: сохрани val и err
 	v, err := fn()
 	if err != nil {
 		o.val = nil
 		o.done = false
-		o.err = err
+	} else {
+		o.val = v
+		o.done = true
 	}
+	o.err = err
 
-	// TODO: вызови fn()
-	// TODO: если err == nil — установи done = true
-	// TODO: сохрани val и err
-	o.val = v
-	o.done = true
 	return v, err
 }
 
