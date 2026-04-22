@@ -28,6 +28,7 @@ import (
 )
 
 type Semaphore struct {
+	mu sync.Mutex
 	ch chan struct{}
 }
 
@@ -43,6 +44,9 @@ func NewSemaphore(n int) *Semaphore {
 // Acquire блокирующий захват n единиц.
 // TODO: реализуй через цикл с чтением из ch
 func (s *Semaphore) Acquire(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for range n {
 		<-s.ch
 	}
@@ -50,7 +54,8 @@ func (s *Semaphore) Acquire(n int) {
 
 // AcquireContext захват с контекстом — можно отменить.
 // TODO: реализуй — если ctx отменён до получения всех n единиц,
-//       верни уже захваченные обратно и вернуть ctx.Err()
+//
+//	верни уже захваченные обратно и вернуть ctx.Err()
 func (s *Semaphore) AcquireContext(ctx context.Context, n int) error {
 	acquired := 0
 	for range n {
