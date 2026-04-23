@@ -44,9 +44,6 @@ func NewSemaphore(n int) *Semaphore {
 // Acquire блокирующий захват n единиц.
 // TODO: реализуй через цикл с чтением из ch
 func (s *Semaphore) Acquire(n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	for range n {
 		<-s.ch
 	}
@@ -79,11 +76,13 @@ func (s *Semaphore) TryAcquire(n int) bool {
 		return false
 	}
 	// TODO: захвати через default в select
+	acquired := 0
 	for range n {
 		select {
 		case <-s.ch:
+			acquired++
 		default:
-			s.Release(n - 1) // вернём уже взятые
+			s.Release(acquired) // вернём уже взятые
 			return false
 		}
 	}

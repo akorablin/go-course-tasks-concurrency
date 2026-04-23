@@ -33,8 +33,9 @@ import (
 )
 
 type entry[V any] struct {
-	value  V
-	expiry time.Time
+	value     V
+	expiry    time.Time
+	isDeleted bool
 }
 
 type TTLCache[K comparable, V any] struct {
@@ -58,8 +59,9 @@ func (c *TTLCache[K, V]) Set(key K, value V) {
 
 	// TODO: сохрани entry с expiry = time.Now().Add(c.ttl)
 	c.items[key] = entry[V]{
-		value:  value,
-		expiry: time.Now().Add(c.ttl),
+		value:     value,
+		expiry:    time.Now().Add(c.ttl),
+		isDeleted: false,
 	}
 }
 
@@ -69,15 +71,22 @@ func (c *TTLCache[K, V]) Get(key K) (V, bool) {
 
 	var zero V
 	if v, ok := c.items[key]; ok {
-		// TODO: проверь entry.expiry.After(time.Now())
-		// Если устарело — удали из map и верни zero, false
-		if v.expiry.After(time.Now()) {
-			c.mu.RUnlock()
-			return v.value, true
-		} else {
+		if v.isDeleted {
 			c.mu.RUnlock()
 			c.Delete(key)
 			return zero, false
+		} else {
+			// TODO: проверь entry.expiry.After(time.Now())
+			// Если устарело — удали из map и верни zero, false
+			now := time.Now()
+			if now.After(v.expiry) {
+				v.isDeleted = true
+				c.mu.RUnlock()
+				return zero, false
+			}
+
+			c.mu.RUnlock()
+			return v.value, true
 		}
 	}
 
@@ -89,7 +98,11 @@ func (c *TTLCache[K, V]) Get(key K) (V, bool) {
 func (c *TTLCache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.items, key)
+
+	now := time.Now()
+	if e, ok := c.items[key]; ok && now.After(e.expiry) {
+		delete(c.items, key)
+	}
 }
 
 // TODO: реализуй Len — количество ЖИВЫХ записей

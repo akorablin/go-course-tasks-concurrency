@@ -65,12 +65,7 @@ func mergeN(channels ...<-chan int) <-chan int {
 		go func() {
 			defer wg.Done()
 
-			for channels[i] != nil {
-				v, ok := <-channels[i]
-				if !ok {
-					channels[i] = nil
-					continue
-				}
+			for v := range channels[i] {
 				out <- v
 			}
 		}()
