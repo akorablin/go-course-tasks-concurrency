@@ -68,30 +68,32 @@ func (c *TTLCache[K, V]) Set(key K, value V) {
 // TODO: реализуй Get — возвращает значение если оно есть и не устарело
 func (c *TTLCache[K, V]) Get(key K) (V, bool) {
 	c.mu.RLock() // TODO: поменяй на RLock, но нужен апгрейд до Lock если запись устарела
+	v, ok := c.items[key]
+	c.mu.RUnlock()
 
 	var zero V
-	if v, ok := c.items[key]; ok {
-		if v.isDeleted {
-			c.mu.RUnlock()
-			c.Delete(key)
-			return zero, false
-		} else {
-			// TODO: проверь entry.expiry.After(time.Now())
-			// Если устарело — удали из map и верни zero, false
-			now := time.Now()
-			if now.After(v.expiry) {
-				v.isDeleted = true
-				c.mu.RUnlock()
-				return zero, false
-			}
-
-			c.mu.RUnlock()
-			return v.value, true
-		}
+	if !ok {
+		return zero, false
 	}
 
-	c.mu.RUnlock()
-	return zero, false
+	if v.isDeleted {
+		c.Delete(key)
+		return zero, false
+	} else {
+		// TODO: проверь entry.expiry.After(time.Now())
+		// Если устарело — удали из map и верни zero, false
+		now := time.Now()
+		if now.After(v.expiry) {
+			c.items[key] = entry[V]{
+				value:     v.value,
+				expiry:    v.expiry,
+				isDeleted: true,
+			}
+			return zero, false
+		}
+
+		return v.value, true
+	}
 }
 
 // TODO: реализуй Delete

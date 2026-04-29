@@ -35,6 +35,7 @@ import (
 
 type WorkerPool struct {
 	jobs    chan func()
+	done    chan struct{}
 	wg      sync.WaitGroup
 	once    sync.Once
 	running atomic.Int32
@@ -44,15 +45,17 @@ type WorkerPool struct {
 func NewWorkerPool(workers int) *WorkerPool {
 	p := &WorkerPool{
 		jobs: make(chan func(), 100),
+		done: make(chan struct{}),
 	}
+	// p.done <- struct{}{}
 	p.wg.Add(workers)
 	for range workers {
 		go func() {
 			defer p.wg.Done()
-			p.running.Add(1)
-			defer p.running.Add(-1)
 			for job := range p.jobs {
+				p.running.Add(1)
 				job()
+				p.running.Add(-1)
 			}
 		}()
 	}
@@ -62,6 +65,14 @@ func NewWorkerPool(workers int) *WorkerPool {
 // TODO: реализуй Submit
 func (p *WorkerPool) Submit(task func()) bool {
 	select {
+	case <-p.done:
+		return false
+	default:
+	}
+
+	select {
+	case <-p.done:
+		return false
 	case p.jobs <- task:
 		return true
 	default:
@@ -73,6 +84,7 @@ func (p *WorkerPool) Submit(task func()) bool {
 // Stop ждёт завершения всех задач
 func (p *WorkerPool) Stop() {
 	p.once.Do(func() {
+		close(p.done)
 		close(p.jobs)
 	})
 	p.wg.Wait()
@@ -86,6 +98,7 @@ func (p *WorkerPool) StopNow() {
 			select {
 			case <-p.jobs:
 			default:
+				close(p.done)
 				close(p.jobs)
 				return
 			}
@@ -104,6 +117,8 @@ func main() {
 	var mu sync.Mutex
 	var results []int
 
+	// pool.Stop()
+
 	for i := 0; i < 10; i++ {
 		n := i
 		pool.Submit(func() {
@@ -113,6 +128,10 @@ func main() {
 			mu.Unlock()
 			fmt.Printf("задача %d выполнена\n", n)
 		})
+		if i == 3 {
+			// pool.Stop()
+			// pool.StopNow()
+		}
 	}
 
 	pool.Stop()
