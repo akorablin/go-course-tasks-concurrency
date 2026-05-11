@@ -34,42 +34,107 @@ import (
 )
 
 type Group struct {
-	wg      sync.WaitGroup
-	errOnce sync.Once
-	err     error
-	cancel  context.CancelFunc
-	sem     chan struct{} // nil если лимита нет
+	wg        sync.WaitGroup
+	errOnce   sync.Once
+	err       error
+	cancel    context.CancelFunc
+	sem       chan struct{} // nil если лимита нет
+	panicOnce sync.Once
+	panicVal  any
 }
 
 // TODO: реализуй WithContext
 // Подсказка: нужен производный context.WithCancel; cancel вызывается при ПЕРВОЙ ошибке
 func WithContext(ctx context.Context) (*Group, context.Context) {
-	// TODO
-	return nil, ctx
+	// Создаем производный контекст с функцией отмены
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Возвращаем инициализированную группу и новый контекст
+	return &Group{
+		cancel: cancel,
+	}, ctx
 }
 
 // TODO: реализуй Go
 // Подсказка: учитывай лимит (sem) — если задан, он ограничивает число параллельных вызовов
 // При ошибке — запомни первую (errOnce) и отмени ctx
 func (g *Group) Go(fn func() error) {
-	// TODO
+	// Если семафор инициализирован (есть лимит), занимаем слот
+	if g.sem != nil {
+		g.sem <- struct{}{}
+	}
+
+	g.wg.Add(1)
+
+	go func() {
+		defer func() {
+			// Освобождаем слот в семафоре после завершения
+			if g.sem != nil {
+				<-g.sem
+			}
+			g.wg.Done()
+		}()
+
+		// Перехватываем панику
+		defer func() {
+			if r := recover(); r != nil {
+				g.panicOnce.Do(func() {
+					g.panicVal = r
+				})
+				// Если случилась паника, отменяем контекст, как и при ошибке
+				if g.cancel != nil {
+					g.cancel()
+				}
+			}
+		}()
+
+		// Выполняем функцию
+		if err := fn(); err != nil {
+			// Используем errOnce, чтобы зафиксировать только ПЕРВУЮ ошибку
+			g.errOnce.Do(func() {
+				g.err = err
+				// Отменяем контекст, чтобы другие горутины узнали о сбое
+				if g.cancel != nil {
+					g.cancel()
+				}
+			})
+		}
+	}()
 }
 
 // TODO: реализуй Wait
 func (g *Group) Wait() error {
-	// TODO
+	// Блокируемся и ждем, пока счетчик WaitGroup обнулится
+	g.wg.Wait()
+
+	// Если была вызвана отмена контекста, ее нужно закрыть
+	if g.cancel != nil {
+		g.cancel()
+	}
+
+	// Если была паника — пробрасываем её дальше
+	if g.panicVal != nil {
+		panic(g.panicVal)
+	}
+
+	// Возвращаем ошибку, которую сохранила errOnce.Do
 	return g.err
 }
 
 // TODO: реализуй SetLimit — после вызова Go ограничивает N параллельных
 // Если задать 0 или отрицательное — сброс лимита
 func (g *Group) SetLimit(n int) {
-	// TODO
+	if n <= 0 {
+		g.sem = nil // Нет лимита
+		return
+	}
+	g.sem = make(chan struct{}, n)
 }
 
 func main() {
 	ctx := context.Background()
 	g, ctx := WithContext(ctx)
+	g.SetLimit(2)
 
 	urls := []string{"a", "b", "c", "d"}
 
