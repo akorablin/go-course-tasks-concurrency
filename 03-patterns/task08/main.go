@@ -53,18 +53,36 @@ type Debouncer struct {
 
 // TODO: реализуй NewDebouncer
 func NewDebouncer(d time.Duration, fn func()) *Debouncer {
-	return nil
+	return &Debouncer{
+		d:  d,
+		fn: fn,
+	}
 }
 
 // TODO: реализуй Trigger
 // Подсказка: time.Timer умеет Reset — используй его. Stop+new также работает.
 func (db *Debouncer) Trigger() {
-	// TODO
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Если таймер еще не создан, инициализируем его с функцией fn.
+	// Если создан — просто сбрасываем его на новое время d.
+	if db.timer == nil {
+		db.timer = time.AfterFunc(db.d, db.fn)
+	} else {
+		db.timer.Stop() // Останавливаем текущий, если он активен
+		db.timer.Reset(db.d)
+	}
 }
 
 // TODO: реализуй Stop
 func (db *Debouncer) Stop() {
-	// TODO
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.timer != nil {
+		db.timer.Stop()
+	}
 }
 
 // === Throttler ===
@@ -77,14 +95,29 @@ type Throttler struct {
 
 // TODO: реализуй NewThrottler
 func NewThrottler(d time.Duration, fn func()) *Throttler {
-	return nil
+	return &Throttler{
+		d:  d,
+		fn: fn,
+	}
 }
 
 // TODO: реализуй Trigger
 // Подсказка: запомни время последнего успешного вызова и используй CAS
 // для атомарной проверки "прошло ли d с прошлого раза"
 func (t *Throttler) Trigger() {
-	// TODO
+	now := time.Now().UnixNano()
+	last := t.lastNs.Load()
+
+	// Проверяем, прошел ли интервал d с последнего запуска
+	if now-last < t.d.Nanoseconds() {
+		return
+	}
+
+	// Пытаемся обновить время последнего запуска.
+	// CompareAndSwap гарантирует, что только одна горутина проскочит "внутри" интервала.
+	if t.lastNs.CompareAndSwap(last, now) {
+		t.fn()
+	}
 }
 
 func main() {
