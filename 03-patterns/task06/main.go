@@ -46,10 +46,8 @@ type Group struct {
 // TODO: реализуй WithContext
 // Подсказка: нужен производный context.WithCancel; cancel вызывается при ПЕРВОЙ ошибке
 func WithContext(ctx context.Context) (*Group, context.Context) {
-	// Создаем производный контекст с функцией отмены
 	ctx, cancel := context.WithCancel(ctx)
 
-	// Возвращаем инициализированную группу и новый контекст
 	return &Group{
 		cancel: cancel,
 	}, ctx
@@ -59,7 +57,6 @@ func WithContext(ctx context.Context) (*Group, context.Context) {
 // Подсказка: учитывай лимит (sem) — если задан, он ограничивает число параллельных вызовов
 // При ошибке — запомни первую (errOnce) и отмени ctx
 func (g *Group) Go(fn func() error) {
-	// Если семафор инициализирован (есть лимит), занимаем слот
 	if g.sem != nil {
 		g.sem <- struct{}{}
 	}
@@ -68,7 +65,6 @@ func (g *Group) Go(fn func() error) {
 
 	go func() {
 		defer func() {
-			// Освобождаем слот в семафоре после завершения
 			if g.sem != nil {
 				<-g.sem
 			}
@@ -81,19 +77,16 @@ func (g *Group) Go(fn func() error) {
 				g.panicOnce.Do(func() {
 					g.panicVal = r
 				})
-				// Если случилась паника, отменяем контекст, как и при ошибке
 				if g.cancel != nil {
 					g.cancel()
 				}
 			}
 		}()
 
-		// Выполняем функцию
+		// Перехватываем ПЕРВУЮ ошибку
 		if err := fn(); err != nil {
-			// Используем errOnce, чтобы зафиксировать только ПЕРВУЮ ошибку
 			g.errOnce.Do(func() {
 				g.err = err
-				// Отменяем контекст, чтобы другие горутины узнали о сбое
 				if g.cancel != nil {
 					g.cancel()
 				}
@@ -104,20 +97,16 @@ func (g *Group) Go(fn func() error) {
 
 // TODO: реализуй Wait
 func (g *Group) Wait() error {
-	// Блокируемся и ждем, пока счетчик WaitGroup обнулится
 	g.wg.Wait()
 
-	// Если была вызвана отмена контекста, ее нужно закрыть
 	if g.cancel != nil {
 		g.cancel()
 	}
 
-	// Если была паника — пробрасываем её дальше
 	if g.panicVal != nil {
 		panic(g.panicVal)
 	}
 
-	// Возвращаем ошибку, которую сохранила errOnce.Do
 	return g.err
 }
 
