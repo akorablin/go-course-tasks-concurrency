@@ -65,12 +65,10 @@ func (db *Debouncer) Trigger() {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	// Если таймер еще не создан, инициализируем его с функцией fn.
-	// Если создан — просто сбрасываем его на новое время d.
 	if db.timer == nil {
 		db.timer = time.AfterFunc(db.d, db.fn)
 	} else {
-		db.timer.Stop() // Останавливаем текущий, если он активен
+		db.timer.Stop()
 		db.timer.Reset(db.d)
 	}
 }
@@ -108,13 +106,10 @@ func (t *Throttler) Trigger() {
 	now := time.Now().UnixNano()
 	last := t.lastNs.Load()
 
-	// Проверяем, прошел ли интервал d с последнего запуска
 	if now-last < t.d.Nanoseconds() {
 		return
 	}
 
-	// Пытаемся обновить время последнего запуска.
-	// CompareAndSwap гарантирует, что только одна горутина проскочит "внутри" интервала.
 	if t.lastNs.CompareAndSwap(last, now) {
 		t.fn()
 	}
