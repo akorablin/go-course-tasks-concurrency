@@ -65,12 +65,10 @@ func (db *Debouncer) Trigger() {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if db.timer == nil {
-		db.timer = time.AfterFunc(db.d, db.fn)
-	} else {
+	if db.timer != nil {
 		db.timer.Stop()
-		db.timer.Reset(db.d)
 	}
+	db.timer = time.AfterFunc(db.d, db.fn)
 }
 
 // TODO: реализуй Stop
