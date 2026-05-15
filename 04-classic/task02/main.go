@@ -26,7 +26,8 @@ package main
 import (
 	"fmt"
 	"sort"
-	"testing"
+	"sync"
+	"sync/atomic"
 )
 
 // === Вариант 1: через каналы ===
@@ -34,24 +35,55 @@ import (
 // TODO: реализуй producerConsumerChan
 // Подсказка: два буферизованных канала и два WaitGroup — для производителей и потребителей
 func producerConsumerChan(producers, consumers, n, bufSize int) []int {
-	return nil
-}
+	dataChan := make(chan int, bufSize)
+	resultsChan := make(chan int, n)
 
-func TestProducerConsumer(t *testing.T) {
-	results := producerConsumerChan(3, 4, 20, 5)
-	sort.Ints(results)
+	var wgProducers sync.WaitGroup
+	var wgConsumers sync.WaitGroup
 
-	if len(results) != 20 {
-		t.Fatalf("ожидали 20 результатов, получили %d", len(results))
+	// Глобальный счетчик для условия "M производителей генерируют числа 0..N"
+	var globalCounter int64 = 0
+
+	// Производители
+	for i := 0; i < producers; i++ {
+		wgProducers.Add(1)
+		go func() {
+			defer wgProducers.Done()
+			for {
+				val := atomic.AddInt64(&globalCounter, 1) - 1
+				if val >= int64(n) {
+					break
+				}
+				dataChan <- int(val)
+			}
+		}()
 	}
 
-	// Проверяем что это квадраты чисел 0..19
-	for i, v := range results {
-		want := i * i
-		if v != want {
-			t.Errorf("[%d] = %d, want %d", i, v, want)
-		}
+	// Потребители
+	for i := 0; i < consumers; i++ {
+		wgConsumers.Add(1)
+		go func() {
+			defer wgConsumers.Done()
+			for val := range dataChan {
+				resultsChan <- val * val
+			}
+		}()
 	}
+
+	go func() {
+		wgProducers.Wait()
+		close(dataChan)
+	}()
+
+	wgConsumers.Wait()
+	close(resultsChan)
+
+	var result []int
+	for res := range resultsChan {
+		result = append(result, res)
+	}
+
+	return result
 }
 
 // === Вариант 2: через sync.Cond ===
@@ -59,25 +91,87 @@ func TestProducerConsumer(t *testing.T) {
 // TODO: реализуй producerConsumerCond
 // Подсказка: буфер — обычный срез; производители ждут пока буфер полон, потребители — пока пуст
 func producerConsumerCond(producers, consumers, n, bufSize int) []int {
-	return nil
-}
+	var mu sync.Mutex
+	cond := sync.NewCond(&mu)
 
-func TestProducerConsumerCond(t *testing.T) {
-	results := producerConsumerCond(3, 4, 20, 5)
-	sort.Ints(results)
+	buffer := make([]int, 0, bufSize)
+	results := make([]int, 0, n)
 
-	if len(results) != 20 {
-		t.Fatalf("ожидали 20 результатов, получили %d", len(results))
+	var wgProducers sync.WaitGroup
+	var wgConsumers sync.WaitGroup
+
+	var globalCounter int64 = 0
+	var producersFinished int32 = 0
+
+	// Производители
+	for i := 0; i < producers; i++ {
+		wgProducers.Add(1)
+		go func() {
+			defer wgProducers.Done()
+			for {
+				val := atomic.AddInt64(&globalCounter, 1) - 1
+				if val >= int64(n) {
+					break
+				}
+
+				mu.Lock()
+				for len(buffer) == bufSize {
+					cond.Wait()
+				}
+
+				buffer = append(buffer, int(val))
+
+				cond.Broadcast()
+				mu.Unlock()
+			}
+		}()
 	}
-	for i, v := range results {
-		if v != i*i {
-			t.Errorf("[%d] = %d, want %d", i, v, i*i)
-		}
+
+	// Потребители
+	for i := 0; i < consumers; i++ {
+		wgConsumers.Add(1)
+		go func() {
+			defer wgConsumers.Done()
+			for {
+				mu.Lock()
+				for len(buffer) == 0 && atomic.LoadInt32(&producersFinished) == 0 {
+					cond.Wait()
+				}
+
+				if len(buffer) == 0 && atomic.LoadInt32(&producersFinished) == 1 {
+					mu.Unlock()
+					return
+				}
+
+				val := buffer[0]
+				buffer = buffer[1:]
+				val *= val
+
+				results = append(results, val)
+
+				cond.Broadcast()
+				mu.Unlock()
+			}
+		}()
 	}
+
+	wgProducers.Wait()
+	mu.Lock()
+	atomic.StoreInt32(&producersFinished, 1)
+	cond.Broadcast()
+	mu.Unlock()
+
+	wgConsumers.Wait()
+
+	return results
 }
 
 func main() {
-	results := producerConsumerChan(2, 3, 10, 3)
-	sort.Ints(results)
-	fmt.Println("Результаты:", results)
+	resultsChan := producerConsumerChan(2, 3, 10, 3)
+	sort.Ints(resultsChan)
+	fmt.Println("Результаты:", resultsChan)
+
+	resultsCond := producerConsumerCond(2, 3, 10, 3)
+	sort.Ints(resultsCond)
+	fmt.Println("Результаты:", resultsCond)
 }
