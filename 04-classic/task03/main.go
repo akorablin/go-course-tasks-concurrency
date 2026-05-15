@@ -18,10 +18,9 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"runtime"
 	"sync"
 	"sync/atomic"
-	"testing"
 )
 
 // === Вариант A: через каналы ===
@@ -42,17 +41,21 @@ func NewOrderedPrinterChan() *OrderedPrinterChan {
 
 // TODO: реализуй First — вызови fn и сигнализируй что можно запускать Second
 func (p *OrderedPrinterChan) First(fn func()) {
-	// TODO
+	fn()
+	close(p.after1)
 }
 
 // TODO: реализуй Second — дождись сигнала от First, вызови fn, сигнализируй Third
 func (p *OrderedPrinterChan) Second(fn func()) {
-	// TODO
+	<-p.after1
+	fn()
+	close(p.after2)
 }
 
 // TODO: реализуй Third — дождись сигнала от Second и вызови fn
 func (p *OrderedPrinterChan) Third(fn func()) {
-	// TODO
+	<-p.after2
+	fn()
 }
 
 // === Вариант B: через WaitGroup ===
@@ -71,13 +74,17 @@ func NewOrderedPrinterWG() *OrderedPrinterWG {
 
 // TODO: реализуй First, Second, Third через WaitGroup
 func (p *OrderedPrinterWG) First(fn func()) {
-	// TODO
+	fn()
+	p.wg1.Done()
 }
 func (p *OrderedPrinterWG) Second(fn func()) {
-	// TODO
+	p.wg1.Wait()
+	fn()
+	p.wg2.Done()
 }
 func (p *OrderedPrinterWG) Third(fn func()) {
-	// TODO
+	p.wg2.Wait()
+	fn()
 }
 
 // === Вариант C: через atomic ===
@@ -86,66 +93,63 @@ type OrderedPrinterAtomic struct {
 	state atomic.Int32
 }
 
+func NewOrderedPrinterAtomic() *OrderedPrinterAtomic {
+	return &OrderedPrinterAtomic{}
+}
+
 // TODO: реализуй через spin-ожидание atomic
 func (p *OrderedPrinterAtomic) First(fn func()) {
-	// TODO
+	fn()
+	p.state.CompareAndSwap(0, 1)
 }
 func (p *OrderedPrinterAtomic) Second(fn func()) {
-	// TODO
+	for p.state.Load() != 1 {
+		runtime.Gosched()
+	}
+	fn()
+	p.state.CompareAndSwap(1, 2)
 }
 func (p *OrderedPrinterAtomic) Third(fn func()) {
-	// TODO
-}
-
-// === Тесты ===
-
-func runInOrder(first, second, third func(func())) string {
-	var sb strings.Builder
-	var wg sync.WaitGroup
-	wg.Add(3)
-
-	// Запускаем в "неправильном" порядке
-	go func() { defer wg.Done(); third(func() { sb.WriteString("third") }) }()
-	go func() { defer wg.Done(); second(func() { sb.WriteString("second") }) }()
-	go func() { defer wg.Done(); first(func() { sb.WriteString("first") }) }()
-
-	wg.Wait()
-	return sb.String()
-}
-
-func TestOrderChan(t *testing.T) {
-	p := NewOrderedPrinterChan()
-	result := runInOrder(p.First, p.Second, p.Third)
-	if result != "firstsecondthird" {
-		t.Errorf("порядок нарушен: %q", result)
+	for p.state.Load() != 2 {
+		runtime.Gosched()
 	}
-}
-
-func TestOrderWG(t *testing.T) {
-	p := NewOrderedPrinterWG()
-	result := runInOrder(p.First, p.Second, p.Third)
-	if result != "firstsecondthird" {
-		t.Errorf("порядок нарушен: %q", result)
-	}
-}
-
-func TestOrderAtomic(t *testing.T) {
-	p := &OrderedPrinterAtomic{}
-	result := runInOrder(p.First, p.Second, p.Third)
-	if result != "firstsecondthird" {
-		t.Errorf("порядок нарушен: %q", result)
-	}
+	fn()
 }
 
 func main() {
-	p := NewOrderedPrinterChan()
+	p1 := NewOrderedPrinterChan()
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	go func() { defer wg.Done(); p.Third(func() { fmt.Print("third ") }) }()
-	go func() { defer wg.Done(); p.First(func() { fmt.Print("first ") }) }()
-	go func() { defer wg.Done(); p.Second(func() { fmt.Print("second ") }) }()
+	go func() { defer wg.Done(); p1.Third(func() { fmt.Print("third ") }) }()
+	go func() { defer wg.Done(); p1.First(func() { fmt.Print("first ") }) }()
+	go func() { defer wg.Done(); p1.Second(func() { fmt.Print("second ") }) }()
 
 	wg.Wait()
 	fmt.Println()
+
+	// --------------------
+
+	p2 := NewOrderedPrinterWG()
+	wg.Add(3)
+
+	go func() { defer wg.Done(); p2.Third(func() { fmt.Print("third ") }) }()
+	go func() { defer wg.Done(); p2.First(func() { fmt.Print("first ") }) }()
+	go func() { defer wg.Done(); p2.Second(func() { fmt.Print("second ") }) }()
+
+	wg.Wait()
+	fmt.Println()
+
+	// --------------------
+
+	p3 := NewOrderedPrinterWG()
+	wg.Add(3)
+
+	go func() { defer wg.Done(); p3.Third(func() { fmt.Print("third ") }) }()
+	go func() { defer wg.Done(); p3.First(func() { fmt.Print("first ") }) }()
+	go func() { defer wg.Done(); p3.Second(func() { fmt.Print("second ") }) }()
+
+	wg.Wait()
+	fmt.Println()
+
 }
