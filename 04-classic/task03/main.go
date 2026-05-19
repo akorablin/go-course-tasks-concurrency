@@ -142,7 +142,7 @@ func main() {
 
 	// --------------------
 
-	p3 := NewOrderedPrinterWG()
+	p3 := NewOrderedPrinterAtomic()
 	wg.Add(3)
 
 	go func() { defer wg.Done(); p3.Third(func() { fmt.Print("third ") }) }()

@@ -101,7 +101,7 @@ func producerConsumerCond(producers, consumers, n, bufSize int) []int {
 	var wgConsumers sync.WaitGroup
 
 	var globalCounter int64 = 0
-	var producersFinished int32 = 0
+	var producersFinished bool
 
 	// Производители
 	for i := 0; i < producers; i++ {
@@ -134,11 +134,11 @@ func producerConsumerCond(producers, consumers, n, bufSize int) []int {
 			defer wgConsumers.Done()
 			for {
 				mu.Lock()
-				for len(buffer) == 0 && atomic.LoadInt32(&producersFinished) == 0 {
+				for len(buffer) == 0 && producersFinished == false {
 					cond.Wait()
 				}
 
-				if len(buffer) == 0 && atomic.LoadInt32(&producersFinished) == 1 {
+				if len(buffer) == 0 && producersFinished == true {
 					mu.Unlock()
 					return
 				}
@@ -155,11 +155,13 @@ func producerConsumerCond(producers, consumers, n, bufSize int) []int {
 		}()
 	}
 
-	wgProducers.Wait()
-	mu.Lock()
-	atomic.StoreInt32(&producersFinished, 1)
-	cond.Broadcast()
-	mu.Unlock()
+	go func() {
+		wgProducers.Wait()
+		mu.Lock()
+		producersFinished = true
+		cond.Broadcast()
+		mu.Unlock()
+	}()
 
 	wgConsumers.Wait()
 
