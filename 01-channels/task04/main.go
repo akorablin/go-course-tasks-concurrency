@@ -46,21 +46,67 @@ func mockFetch(ctx context.Context, url string) (Result, error) {
 		}
 		return Result{URL: url, Body: fmt.Sprintf("response from %s", url)}, nil
 	case <-ctx.Done():
-		return Result{}, ctx.Err()
+		return Result{}, ErrTimeout
 	}
 }
 
 // TODO: реализуй fastest
-// Подсказка: отмена ctx распространяется на все запросы автоматически — не заботься об явном завершении
+// Алгоритм:
+//  1. Для каждого url запусти горутину с mockFetch
+//  2. Через select жди первый успешный результат
+//  3. При получении — отмени контекст (остальные сами остановятся)
+//  4. Если все вернули ошибку — вернуть ErrAllFailed
+//  5. Если ctx отменён раньше — вернуть ErrTimeout
 func fastest(ctx context.Context, urls []string) (Result, error) {
-	// TODO: реализуй
-	return Result{}, errors.New("TODO: реализуй")
+	results := make(chan Result, len(urls))
+	errs := make(chan error, len(urls))
+	ctxChild, cancel := context.WithCancel(ctx)
+	for _, url := range urls {
+		go func() {
+			r, err := mockFetch(ctxChild, url)
+			if err != nil {
+				errs <- err
+			} else {
+				results <- r
+			}
+		}()
+	}
+
+	errCount := 0
+	for {
+		select {
+		case r := <-results:
+			cancel()
+			return r, nil
+		case <-errs:
+			errCount++
+			if errCount == len(urls) {
+				cancel()
+				return Result{}, ErrAllFailed
+			}
+		case <-ctxChild.Done():
+			cancel()
+			return Result{}, ErrTimeout
+		}
+	}
 }
 
-// TODO: реализуй withTimeout
 func withTimeout(d time.Duration, fn func() (string, error)) (string, error) {
-	// TODO
-	return "", errors.New("TODO: реализуй")
+	type result struct {
+		s   string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		s, err := fn()
+		ch <- result{s, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.s, r.err
+	case <-time.After(d):
+		return "", ErrTimeout
+	}
 }
 
 func main() {

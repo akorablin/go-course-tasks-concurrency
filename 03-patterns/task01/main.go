@@ -35,6 +35,7 @@ import (
 
 type WorkerPool struct {
 	jobs    chan func()
+	done    chan struct{}
 	wg      sync.WaitGroup
 	once    sync.Once
 	running atomic.Int32
@@ -42,21 +43,68 @@ type WorkerPool struct {
 
 // TODO: реализуй NewWorkerPool
 func NewWorkerPool(workers int) *WorkerPool {
-	return nil
+	p := &WorkerPool{
+		jobs: make(chan func(), 100),
+		done: make(chan struct{}),
+	}
+	// p.done <- struct{}{}
+	p.wg.Add(workers)
+	for range workers {
+		go func() {
+			defer p.wg.Done()
+			for job := range p.jobs {
+				p.running.Add(1)
+				job()
+				p.running.Add(-1)
+			}
+		}()
+	}
+	return p
 }
 
 // TODO: реализуй Submit
-// Подсказка: что если очередь уже полна или пул остановлен?
 func (p *WorkerPool) Submit(task func()) bool {
-	return false
+	select {
+	case <-p.done:
+		return false
+	default:
+	}
+
+	select {
+	case <-p.done:
+		return false
+	case p.jobs <- task:
+		return true
+	default:
+		// очередь переполнена
+		return false
+	}
 }
 
-// TODO: Stop ждёт завершения всех задач
+// Stop ждёт завершения всех задач
 func (p *WorkerPool) Stop() {
+	p.once.Do(func() {
+		close(p.done)
+		close(p.jobs)
+	})
+	p.wg.Wait()
 }
 
-// TODO: StopNow немедленная остановка — дропает незапущенные задачи вместо ожидания
+// StopNow немедленно закрывает канал, дропает незапущенные задачи
 func (p *WorkerPool) StopNow() {
+	p.once.Do(func() {
+		// Дренируем незапущенные задачи
+		for {
+			select {
+			case <-p.jobs:
+			default:
+				close(p.done)
+				close(p.jobs)
+				return
+			}
+		}
+	})
+	p.wg.Wait()
 }
 
 func (p *WorkerPool) Running() int {
@@ -69,6 +117,8 @@ func main() {
 	var mu sync.Mutex
 	var results []int
 
+	// pool.Stop()
+
 	for i := 0; i < 10; i++ {
 		n := i
 		pool.Submit(func() {
@@ -78,6 +128,10 @@ func main() {
 			mu.Unlock()
 			fmt.Printf("задача %d выполнена\n", n)
 		})
+		if i == 3 {
+			// pool.Stop()
+			// pool.StopNow()
+		}
 	}
 
 	pool.Stop()

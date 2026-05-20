@@ -20,7 +20,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 )
@@ -58,8 +57,9 @@ var (
 
 // TODO: реализуй GetDB_Once
 func GetDB_Once() *MockDB {
-	// TODO
-	return nil
+	// TODO: используй onceDB.Do(func() { singleDB = NewMockDB() })
+	onceDB.Do(func() { singleDB = NewMockDB() })
+	return singleDB
 }
 
 // === Задача 3: Once с обработкой ошибки ===
@@ -83,8 +83,20 @@ func (o *OnceWithError) Do(fn func() (any, error)) (any, error) {
 		return o.val, o.err
 	}
 
-	// TODO: вызови fn(), сохрани результат; done = true только при успехе
-	return nil, errors.New("TODO: реализуй")
+	// TODO: вызови fn()
+	// TODO: если err == nil — установи done = true
+	// TODO: сохрани val и err
+	v, err := fn()
+	if err != nil {
+		o.val = nil
+		o.done = false
+	} else {
+		o.val = v
+		o.done = true
+	}
+	o.err = err
+
+	return v, err
 }
 
 // === Вспомогательный мок ===

@@ -18,7 +18,7 @@
 //   - Get использует RLock (параллельное чтение)
 //   - Set и Delete используют Lock (эксклюзивная запись)
 //   - Get возвращает (zero, false) для устаревших записей
-//   - Устаревшие записи удаляются лениво (при следующем Get)
+//   - Устаревшие записи удаляются лениво (при следующем Get) ???
 //   - Дополнительно: метод Cleanup() удаляет все устаревшие записи
 //
 // Проверь:
@@ -33,8 +33,9 @@ import (
 )
 
 type entry[V any] struct {
-	value  V
-	expiry time.Time
+	value     V
+	expiry    time.Time
+	isDeleted bool
 }
 
 type TTLCache[K comparable, V any] struct {
@@ -55,38 +56,82 @@ func NewTTLCache[K comparable, V any](ttl time.Duration) *TTLCache[K, V] {
 func (c *TTLCache[K, V]) Set(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// TODO
+
+	// TODO: сохрани entry с expiry = time.Now().Add(c.ttl)
+	c.items[key] = entry[V]{
+		value:     value,
+		expiry:    time.Now().Add(c.ttl),
+		isDeleted: false,
+	}
 }
 
 // TODO: реализуй Get — возвращает значение если оно есть и не устарело
-// Подсказка: Get в основном читает — подумай какой Lock подойдёт
-// Отдельный вопрос: что делать если нашли устаревшую запись? Можно ли её удалить здесь?
 func (c *TTLCache[K, V]) Get(key K) (V, bool) {
-	// TODO
+	c.mu.RLock() // TODO: поменяй на RLock, но нужен апгрейд до Lock если запись устарела
+	v, ok := c.items[key]
+	c.mu.RUnlock()
+
 	var zero V
-	return zero, false
+	if !ok {
+		return zero, false
+	}
+
+	if v.isDeleted {
+		c.Delete(key)
+		return zero, false
+	} else {
+		// TODO: проверь entry.expiry.After(time.Now())
+		// Если устарело — удали из map и верни zero, false
+		now := time.Now()
+		if now.After(v.expiry) {
+			c.items[key] = entry[V]{
+				value:     v.value,
+				expiry:    v.expiry,
+				isDeleted: true,
+			}
+			return zero, false
+		}
+
+		return v.value, true
+	}
 }
 
 // TODO: реализуй Delete
 func (c *TTLCache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// TODO
+
+	now := time.Now()
+	if e, ok := c.items[key]; ok && now.After(e.expiry) {
+		delete(c.items, key)
+	}
 }
 
-// TODO: реализуй Len — количество ЖИВЫХ (не устаревших) записей
+// TODO: реализуй Len — количество ЖИВЫХ записей
 func (c *TTLCache[K, V]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	// TODO
-	return 0
+
+	// TODO: считай только не устаревшие записи
+	count := 0
+	for _, e := range c.items {
+		if e.expiry.After(time.Now()) {
+			count++
+		}
+	}
+	return count
 }
 
 // TODO: реализуй Cleanup — удаляет все устаревшие записи
 func (c *TTLCache[K, V]) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// TODO
+	now := time.Now()
+	for k, e := range c.items {
+		if now.After(e.expiry) {
+			delete(c.items, k)
+		}
+	}
 }
 
 func main() {

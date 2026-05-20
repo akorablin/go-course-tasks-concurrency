@@ -11,8 +11,8 @@
 //   1. withDone(done <-chan struct{}, in <-chan int) <-chan int
 //      Оборачивает любой канал — останавливает чтение при закрытии done
 //
-//   2. Перепиши generate и square с поддержкой done
-//      (используй withDone или добавь параметр напрямую)
+//   2. Перепиши generate, square, filterEven используя withDone
+//      (или добавь done параметр напрямую)
 //
 // Сценарии:
 //   A) Читаем 3 значения, потом cancel() — остальные значения дропаются
@@ -35,31 +35,76 @@ import (
 
 // withDone оборачивает канал in — при закрытии done прекращает чтение.
 // TODO: реализуй
-// Подсказка: оба направления — чтение и запись — должны учитывать отмену
+/*
 func withDone(done <-chan struct{}, in <-chan int) <-chan int {
 	out := make(chan int)
 	go func() {
 		defer close(out)
-		// TODO
+		for {
+			select {
+			case <-done:
+				return
+			case v, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- v:
+				case <-done:
+					return
+				}
+			}
+		}
 	}()
 	return out
 }
+*/
 
 func generate(done <-chan struct{}, nums ...int) <-chan int {
 	out := make(chan int)
 	go func() {
 		defer close(out)
-		// TODO: защити отправку каждого числа от блокировки при отмене
+		for _, n := range nums {
+			select {
+			case out <- n:
+			case <-done:
+				return
+			}
+		}
 	}()
 	return out
 }
 
-// TODO: реализуй square с поддержкой отмены через done
+func filterEven(done <-chan struct{}, in <-chan int) <-chan int {
+	out := make(chan int)
+	go func() {
+		defer close(out)
+		for n := range in {
+			if n%2 == 0 {
+				select {
+				case out <- n:
+				case <-done:
+					return
+				}
+			}
+		}
+	}()
+	return out
+}
+
+// TODO: добавь параметр done в square
 func square(done <-chan struct{}, in <-chan int) <-chan int {
 	out := make(chan int)
 	go func() {
 		defer close(out)
-		// TODO: аналогично generate, но читаем из канала, а не из среза
+		for n := range in {
+			// TODO: проверяй done перед отправкой
+			select {
+			case out <- n * n:
+			case <-done:
+				return
+			}
+		}
 	}()
 	return out
 }
@@ -75,7 +120,7 @@ func main() {
 		nums[i] = i + 1
 	}
 
-	results := square(done, generate(done, nums...))
+	results := square(done, filterEven(done, generate(done, nums...)))
 
 	// Читаем только 3 значения, потом отменяем
 	var got []int

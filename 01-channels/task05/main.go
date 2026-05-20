@@ -25,35 +25,68 @@ package main
 import (
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // TODO: реализуй merge2
-// Подсказка: когда один из каналов закрылся — надо продолжать читать из другого,
-// но select всё равно может выбрать закрытый (он отдаёт zero-value) — подумай как его исключить
 func merge2(a, b <-chan int) <-chan int {
 	out := make(chan int)
 	go func() {
 		defer close(out)
-		// TODO
+		// TODO: используй for + select с nil-каналами для завершения
+		for a != nil || b != nil {
+			select {
+			case v, ok := <-a:
+				if !ok {
+					a = nil // nil-канал никогда не выбирается в select
+					continue
+				}
+				out <- v
+			case v, ok := <-b:
+				if !ok {
+					b = nil
+					continue
+				}
+				out <- v
+			}
+		}
 	}()
 	return out
 }
 
-// TODO: реализуй mergeN
-// Подсказка: запусти по горутине на каждый канал; нужна синхронизация чтобы
-// понять когда все каналы иссякли — только после этого можно закрыть out
+// TODO: реализуй mergeN через sync.WaitGroup
 func mergeN(channels ...<-chan int) <-chan int {
 	out := make(chan int)
-	// TODO
+	var wg sync.WaitGroup
+
+	// TODO: на каждый канал — горутина
+	for i := range channels {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for v := range channels[i] {
+				out <- v
+			}
+		}()
+	}
+
+	// TODO: WaitGroup.Wait() в отдельной горутине, потом close(out)
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
 	return out
 }
 
-// TODO: реализуй mergeOrdered — сохрани порядок внутри каждого канала
-// Подсказка: достаточно ли уже готового mergeN, или нужно что-то ещё?
-// Подумай: если горутина читает из канала последовательно — может ли она нарушить порядок?
+// TODO: реализуй mergeOrdered
+// Подсказка: для каждого входного канала запусти горутину
+// которая читает значения последовательно — это гарантирует порядок внутри канала
 func mergeOrdered(channels ...<-chan int) <-chan int {
-	// TODO
-	return nil
+	// По сути то же что mergeN — горутины на каждый канал уже гарантируют
+	// что значения из одного канала не переставятся
+	return mergeN(channels...)
 }
 
 func sourceChan(nums ...int) <-chan int {
@@ -68,13 +101,14 @@ func sourceChan(nums ...int) <-chan int {
 func main() {
 	a := sourceChan(1, 3, 5)
 	b := sourceChan(2, 4, 6)
-
 	var result []int
 	for v := range merge2(a, b) {
 		result = append(result, v)
 	}
 	sort.Ints(result)
 	fmt.Println("merge2:", result) // [1 2 3 4 5 6]
+
+	// ------------
 
 	channels := make([]<-chan int, 4)
 	for i := range channels {
@@ -85,11 +119,27 @@ func main() {
 		}
 		channels[i] = sourceChan(nums...)
 	}
-
 	var result2 []int
 	for v := range mergeN(channels...) {
 		result2 = append(result2, v)
 	}
 	sort.Ints(result2)
 	fmt.Println("mergeN:", result2) // [1 2 3 ... 20]
+
+	// ------------
+
+	channels2 := make([]<-chan int, 4)
+	for i := range channels2 {
+		start := i*4 + 1
+		nums := make([]int, 4)
+		for j := range nums {
+			nums[j] = start + j
+		}
+		channels2[i] = sourceChan(nums...)
+	}
+	var result3 []int
+	for v := range mergeOrdered(channels2...) {
+		result3 = append(result3, v)
+	}
+	fmt.Println("mergeOrdered:", result3)
 }
