@@ -40,6 +40,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -54,8 +55,42 @@ func ParallelForEach[T any](
 	parallelism int,
 	fn func(ctx context.Context, item T) error,
 ) error {
-	// TODO
-	return nil
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sem := make(chan struct{}, parallelism)
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+
+	for _, item := range items {
+		if ctx.Err() != nil {
+			break
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			if err := fn(ctx, item); err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+					cancel()
+				})
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	return firstErr
 }
 
 // TODO: реализуй ParallelMap (бонус)
@@ -65,8 +100,53 @@ func ParallelMap[I, O any](
 	parallelism int,
 	fn func(ctx context.Context, item I) (O, error),
 ) ([]O, error) {
-	// TODO
-	return nil, nil
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make([]O, len(items))
+
+	sem := make(chan struct{}, parallelism)
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+
+	for i, item := range items {
+		if ctx.Err() != nil {
+			break
+		}
+
+		go func() {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			res, err := fn(ctx, item)
+			if err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+					cancel()
+				})
+				return
+			}
+
+			results[i] = res
+		}()
+
+		wg.Add(1)
+	}
+
+	wg.Wait()
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	return results, nil
 }
 
 func main() {
