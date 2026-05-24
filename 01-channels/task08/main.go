@@ -36,7 +36,36 @@ import (
 func Tee[T any](done <-chan struct{}, in <-chan T) (<-chan T, <-chan T) {
 	out1 := make(chan T)
 	out2 := make(chan T)
-	// TODO
+
+	go func() {
+		defer close(out1)
+		defer close(out2)
+
+		for {
+			select {
+			case <-done:
+				return
+			case v, ok := <-in:
+				if !ok {
+					return
+				}
+
+				ch1, ch2 := out1, out2
+
+				for ch1 != nil || ch2 != nil {
+					select {
+					case <-done:
+						return
+					case ch1 <- v:
+						ch1 = nil
+					case ch2 <- v:
+						ch2 = nil
+					}
+				}
+			}
+		}
+	}()
+
 	return out1, out2
 }
 
