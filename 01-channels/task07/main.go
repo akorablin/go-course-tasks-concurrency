@@ -33,6 +33,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -42,8 +43,41 @@ import (
 // (канал-заглушку, который закроется когда результат готов).
 func OrderedMap[I, O any](in <-chan I, workers int, fn func(I) O) <-chan O {
 	out := make(chan O)
-	// TODO
-	_ = workers
+	promises := make(chan chan O, workers)
+
+	// Диспетчер
+	go func() {
+		defer close(promises)
+
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
+
+		for item := range in {
+			resChan := make(chan O, 1)
+			promises <- resChan
+
+			sem <- struct{}{}
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				resChan <- fn(item)
+			}()
+		}
+
+		wg.Wait()
+	}()
+
+	// Сборщик
+	go func() {
+		defer close(out)
+		for resChan := range promises {
+			out <- <-resChan
+		}
+	}()
+
 	return out
 }
 
