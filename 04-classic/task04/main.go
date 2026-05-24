@@ -87,7 +87,7 @@ func NewFooBarMutex(n int) *FooBarMutex {
 func (fb *FooBarMutex) Foo(fn func()) {
 	for range fb.n {
 		fb.mu.Lock()
-		if fb.turn == 1 {
+		for fb.turn == 1 {
 			fb.cond.Wait()
 		}
 
@@ -102,7 +102,7 @@ func (fb *FooBarMutex) Foo(fn func()) {
 func (fb *FooBarMutex) Bar(fn func()) {
 	for range fb.n {
 		fb.mu.Lock()
-		if fb.turn == 0 {
+		for fb.turn == 0 {
 			fb.cond.Wait()
 		}
 

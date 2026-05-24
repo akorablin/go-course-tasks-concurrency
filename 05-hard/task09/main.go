@@ -115,6 +115,7 @@ func ParallelMap[I, O any](
 			break
 		}
 
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
@@ -136,8 +137,6 @@ func ParallelMap[I, O any](
 
 			results[i] = res
 		}()
-
-		wg.Add(1)
 	}
 
 	wg.Wait()
