@@ -26,6 +26,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 )
 
@@ -69,6 +70,101 @@ func Tee[T any](done <-chan struct{}, in <-chan T) (<-chan T, <-chan T) {
 	return out1, out2
 }
 
+func TeeN[T any](done <-chan struct{}, in <-chan T, n int) []<-chan T {
+	outs := make([]chan T, n)
+	routs := make([]<-chan T, n)
+	for i := range n {
+		outs[i] = make(chan T)
+		routs[i] = outs[i]
+	}
+
+	go func() {
+		defer func() {
+			for _, ch := range outs {
+				close(ch)
+			}
+		}()
+
+		doneCase := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(done)}
+		inCase := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(in)}
+
+		outValues := make([]reflect.Value, n)
+		for i := range n {
+			outValues[i] = reflect.ValueOf(outs[i])
+		}
+
+		var currentVal reflect.Value
+		hasValue := false       // Флаг, чтобы уложиться в один цикл for
+		sent := make([]bool, n) // Срез для учета выходных каналов
+		pendingCount := 0       // Дополнительная проверка, что обработали все выходные каналы
+
+		// 0 - канал done
+		// 1 - канал in
+		// от 2 до n+1 - выходные каналы
+		cases := make([]reflect.SelectCase, 2+n)
+		cases[0] = doneCase
+
+		for {
+			if !hasValue {
+				cases[1] = inCase
+
+				// Отключаем выходные каналы
+				for i := range n {
+					cases[2+i] = reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.Value{}}
+				}
+			} else {
+				// Отключаем канал in
+				cases[1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.Value{}}
+				for i := range n {
+					if !sent[i] {
+						// Заполняем выходной канал
+						cases[2+i] = reflect.SelectCase{
+							Dir:  reflect.SelectSend,
+							Chan: outValues[i],
+							Send: currentVal,
+						}
+					} else {
+						// В этот канал уже отправили
+						cases[2+i] = reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.Value{}}
+					}
+				}
+			}
+
+			// Магия reflect.Select
+			chosen, recv, ok := reflect.Select(cases)
+
+			// Получили done
+			if chosen == 0 {
+				return
+			}
+
+			// Получили in
+			if chosen == 1 {
+				if !ok {
+					return
+				}
+				currentVal = recv
+				hasValue = true
+				pendingCount = n
+				for i := range sent {
+					sent[i] = false
+				}
+			} else {
+				// Получаем индекс выходного канала
+				actualIdx := chosen - 2
+				sent[actualIdx] = true
+				pendingCount--
+
+				if pendingCount == 0 {
+					hasValue = false
+				}
+			}
+		}
+	}()
+
+	return routs
+}
+
 func main() {
 	done := make(chan struct{})
 	defer close(done)
@@ -81,24 +177,39 @@ func main() {
 		}
 	}()
 
-	a, b := Tee(done, source)
+	// a, b := Tee(done, source)
+	// var wg sync.WaitGroup
+	// wg.Add(2)
 
+	// go func() {
+	// 	defer wg.Done()
+	// 	for v := range a {
+	// 		fmt.Println("A:", v)
+	// 	}
+	// }()
+	// go func() {
+	// 	defer wg.Done()
+	// 	for v := range b {
+	// 		fmt.Println("B:", v)
+	// 	}
+	// }()
+
+	// wg.Wait()
+
+	outputs := TeeN(done, source, 3)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	for i, ch := range outputs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for val := range ch {
+				fmt.Printf("    [Читатель %d] Получил: %d\n", i, val)
+			}
+			fmt.Printf("    [Читатель %d] Канал закрыт\n", i)
+		}()
+	}
 
-	go func() {
-		defer wg.Done()
-		for v := range a {
-			fmt.Println("A:", v)
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for v := range b {
-			fmt.Println("B:", v)
-		}
-	}()
-
+	// Ждем завершения работы всех читателей
 	wg.Wait()
-	// Оба A и B должны получить 1,2,3,4,5
+
 }
