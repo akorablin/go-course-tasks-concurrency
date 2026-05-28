@@ -39,31 +39,58 @@ type TryMutex struct {
 // TODO: реализуй NewTryMutex
 // Подсказка: сам факт "владения" можно выразить наличием токена в канале
 func NewTryMutex() *TryMutex {
-	return nil
+	ch := make(chan struct{}, 1)
+	ch <- struct{}{} // По умолчанию мьютекс можно "захватить"
+	return &TryMutex{ch: ch}
 }
 
 // TODO: реализуй Lock
 func (m *TryMutex) Lock() {
+	<-m.ch
 }
 
 // TODO: реализуй TryLock — non-blocking
 // Подсказка: как через select понять что канал "не готов прямо сейчас"?
 func (m *TryMutex) TryLock() bool {
-	return false
+	select {
+	case <-m.ch:
+		return true
+	default:
+		return false
+	}
 }
 
 // TODO: реализуй LockTimeout
 func (m *TryMutex) LockTimeout(d time.Duration) bool {
-	return false
+	select {
+	case <-m.ch:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }
 
 // TODO: реализуй LockContext
 func (m *TryMutex) LockContext(ctx context.Context) error {
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	select {
+	case <-m.ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // TODO: реализуй Unlock (с паникой при двойном Unlock)
 func (m *TryMutex) Unlock() {
+	select {
+	case m.ch <- struct{}{}:
+	default:
+		panic("unlock of unlocked mutex")
+	}
 }
 
 func main() {
@@ -82,13 +109,13 @@ func main() {
 	m.Unlock()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		id := i
 		go func() {
 			defer wg.Done()
 			m.Lock()
-			fmt.Printf("горутина %d в критической секции\n", id)
+			fmt.Printf("горутина %d в критической секции\n", id+1)
 			time.Sleep(20 * time.Millisecond)
 			m.Unlock()
 		}()
